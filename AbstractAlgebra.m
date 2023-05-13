@@ -346,7 +346,6 @@ DefineVectorSpaceOfOperators[groundfield_]:=(
 	Unprotect[Times];
 	Times[x___,y_?(AbstractAlgebra`GroundField`FieldElementQ[#,groundfield]&),z___][w_]:=y Times[x,z][w];
 	Protect[Times];
-	
 );
 
 DefineCompositionAction[algebra_]:=(
@@ -438,6 +437,16 @@ End[]
 
 Begin["`Homomorphisms`"]
 
+Inv:=Global`Inv;
+
+DefineHomomorphism[\[Psi]_,algebra1_,algebra2_]:=(
+	AbstractAlgebra`GroundField`SetMultiLinear[\[Psi],algebra1["groundfield"],AbstractAlgebra`General`NCCollect[#,algebra1["groundfield"],Factor]&];
+	\[Psi][algebra1["NonCommutativeMultiply"][X_,Y__]]:=algebra2["NonCommutativeMultiply"][\[Psi][X],\[Psi][algebra1["NonCommutativeMultiply"][Y]]];
+	\[Psi][algebra1["Id"]]=algebra2["Id"];
+	\[Psi][Inv[X_]]:=Inv[\[Psi][X]];
+);
+
+(*Old functions for reverse compatibility*)
 DefineOnGenerators[\[Tau]_,algebra_,multpatterns_]:=(
 	AbstractAlgebra`GroundField`SetMultiLinear[\[Tau],algebra["groundfield"],AbstractAlgebra`General`NCCollect[#,algebra["groundfield"],Factor]&];
 	\[Tau][algebra["Id"]]=algebra["Id"];
@@ -493,7 +502,8 @@ DefineAssociativeAlgebra[algebra_]:=(
 	With[
 		{MultF=algebra["NonCommutativeMultiply"]}
 	,
-		(*Defining Test Functions*)
+		(*Defining Basic Test Functions*)
+		algebra["FieldElementQ"][expr_]:=AbstractAlgebra`GroundField`FieldElementQ[expr,algebra["groundfield"]];
 		algebra["GeneratorQ"][expr_]:=(Or@@Map[MatchQ[expr,#]&,algebra["generators"]]);
 		algebra["AssociativeMonomialQ"][expr_]:=Switch[expr,
 		_?(AbstractAlgebra`GroundField`FieldElementQ[#,algebra["groundfield"]]&),True,
@@ -505,6 +515,20 @@ DefineAssociativeAlgebra[algebra_]:=(
 			Return[And@@Map[algebra["AssociativeMonomialQ"],exprtab,1]]
 		],
 		_,False
+		];
+		(*Defining General Functions*)
+		algebra["Collect"][expr_,F_]:=AbstractAlgebra`General`NCCollect[expr,algebra["groundfield"],F];
+		algebra["Collect"][expr_]:=algebra["Collect"][expr,#&];
+		algebra["Rules"][expr_]:=AbstractAlgebra`General`Rules[expr,algebra["groundfield"]];
+		algebra["ElementQ"][expr_]:=Module[
+			{rules,i}
+		,
+			rules=algebra["Rules"][expr];
+			For[i=1,i<=Length[rules],i++,
+				If[!algebra["FieldElementQ"][rules[[i,2]]],Return[False]];
+				If[!algebra["AssociativeMonomialQ"][rules[[i,1]]],Return[False]];
+			];
+			Return[True];
 		];
 	];
 );
@@ -1029,7 +1053,14 @@ DefineFiltration[algebra_]:=Module[
 			]&;
 		];
 	];
-	algebra["Deg"][algebra["Id"]]=0;
+	With[
+		{NonCommutativeMultiply=algebra["NonCommutativeMultiply"]}
+	,
+		If[!ValueQ[algebra["Deg"][NonCommutativeMultiply],Method->"TrialEvaluation"],
+			algebra["Deg"][NonCommutativeMultiply]=algebra["GradingMultF"]@@{};
+		];
+	];
+	algebra["Deg"][algebra["Id"]]=algebra["GradingMultF"]@@{};
 	algebra["Deg"][x_?NumericQ]:=algebra["GradingMultF"][];
 	algebra["Deg"][x_?(algebra["GradedOperationQ"])]:=Module[
 		{xtab=x,degtab,opdeg}
@@ -1142,6 +1173,7 @@ End[]
 Begin["`Ideals`"]
 (*Word problem in the underlying algebra must be solved and implemented in NonCommutativeMultiply,
 Assuming the algebra is filtered with generators in strictly positive degrees*)
+silent=False;
 debug=False;
 debugAll=False;
 
@@ -1214,7 +1246,7 @@ RightPrincipalIdealSpanPairs[generator_,totdeg_,algebra_]:=Module[
 
 (*Degree is calculated by the top degree in expressions Rg_i L, not by the actual degree of the sum
 In other words, ideal["basis"][deg] gives basis for the span of all sums Rg_iL with sum of the three degrees in each term not exceeding maxdeg
-Format {L,g_i,R,Lg_iR}*)
+Format {L,i,R,Lg_iR}*)
 DefineIdealBasis[ideal_,c_,substN_]:=Module[
 	{algebra=ideal["algebra"],groundfield=ideal["algebra"]["groundfield"]}
 ,
@@ -1339,7 +1371,8 @@ DefineIdealBasis[ideal_,c_,substN_]:=Module[
 		SpanN[deg_]:=SpanN[deg]=ideal[options[[1]]][deg]/.subst;
 		(*Finding the smallest degree with solution*)
 		For[deg=algebra["Deg"][expr],deg<=algebra["Deg"][expr]+options[[4]],deg++,
-			If[debugAll,Print["deg=",deg,", SpanN[deg]=",Short[SpanN[deg]]]];
+			Print["deg=",deg];
+			If[True,Print["deg=",deg,", SpanN[deg]=",Short[SpanN[deg]]]];
 			If[options[[3]],
 				coeffN=GetCoefficientsSolve[SpanN[deg],expr/.subst,groundfield,c]
 			,
@@ -1422,6 +1455,4 @@ AssignCommutativeSubalgebra[Atab_]:=AssignCommutativeSubalgebra[Atab,NonCommutat
 End[]
 
 EndPackage[]
-
-
 
